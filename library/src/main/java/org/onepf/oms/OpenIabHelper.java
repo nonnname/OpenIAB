@@ -235,7 +235,7 @@ public class OpenIabHelper {
     private final ExecutorService inventoryExecutor = Executors.newSingleThreadExecutor();
 
     //For internal use only. Do not make it public!
-    private static interface AppstoreFactory {
+    private interface AppstoreFactory {
         @Nullable
         Appstore get();
     }
@@ -1255,7 +1255,7 @@ public class OpenIabHelper {
                                             appstore.getAppstoreName(), " found: ",
                                             inventory.getAllPurchases().size(), " purchases");
                                 }
-                            } catch (IabException exception) {
+                            } catch (Exception exception) {
                                 Logger.e("inventoryCheck() failed for ", appstore.getAppstoreName() + " : ", exception);
                             }
                             inventorySemaphore.release();
@@ -1464,6 +1464,13 @@ public class OpenIabHelper {
                 } catch (IabException exception) {
                     result = exception.getResult();
                     Logger.e("queryInventoryAsync() Error : ", exception);
+                } catch (Exception exception) {
+                    if (exception instanceof SecurityException) {
+                        result = new IabResult(BILLING_RESPONSE_RESULT_BILLING_UNAVAILABLE, "Billing internal error.");
+                    } else {
+                        result = new IabResult(BILLING_RESPONSE_RESULT_ERROR, "Unknown error.");
+                    }
+                    Logger.e("queryInventoryAsync() Error : ", exception);
                 }
 
                 final IabResult result_f = result;
@@ -1522,6 +1529,13 @@ public class OpenIabHelper {
                         results.add(new IabResult(BILLING_RESPONSE_RESULT_OK, "Successful consume of sku " + purchase.getSku()));
                     } catch (IabException exception) {
                         results.add(exception.getResult());
+                        Logger.e("consumeAsyncInternal() Error : ", exception);
+                    } catch (Exception exception) {
+                        if (exception instanceof SecurityException) {
+                            results.add(new IabResult(BILLING_RESPONSE_RESULT_BILLING_UNAVAILABLE, "Billing internal error."));
+                        } else {
+                            results.add(new IabResult(BILLING_RESPONSE_RESULT_ERROR, "Unknown error."));
+                        }
                         Logger.e("consumeAsyncInternal() Error : ", exception);
                     }
                 }

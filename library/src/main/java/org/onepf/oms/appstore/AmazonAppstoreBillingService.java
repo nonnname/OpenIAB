@@ -62,7 +62,7 @@ import java.util.concurrent.CountDownLatch;
  * @author Ruslan Sayfutdinov, Oleg Orlov, Roman Zhilich
  * @since 16.04.13
  */
-public class AmazonAppstoreBillingService implements AppstoreInAppBillingService, PurchasingListener {
+class AmazonAppstoreBillingService implements AppstoreInAppBillingService, PurchasingListener {
 
     // ========================================================================
     // PURCHASE RESPONSE JSON KEYS
@@ -120,7 +120,7 @@ public class AmazonAppstoreBillingService implements AppstoreInAppBillingService
     private IabHelper.OnIabSetupFinishedListener setupListener;
 
 
-    public AmazonAppstoreBillingService(@NotNull Context context) {
+    AmazonAppstoreBillingService(@NotNull Context context) {
         this.context = context.getApplicationContext();
     }
 
@@ -226,7 +226,7 @@ public class AmazonAppstoreBillingService implements AppstoreInAppBillingService
                     break;
                 }
                 for (final Receipt receipt : purchaseUpdatesResponse.getReceipts()) {
-                    inventory.addPurchase(getPurchase(receipt));
+                    inventory.addPurchase(getPurchase(receipt, userData));
                 }
                 if (purchaseUpdatesResponse.hasMore()) {
                     PurchasingService.getPurchaseUpdates(false);
@@ -244,7 +244,7 @@ public class AmazonAppstoreBillingService implements AppstoreInAppBillingService
     }
 
     @NotNull
-    private Purchase getPurchase(@Nullable final Receipt receipt) {
+    private Purchase getPurchase(@Nullable final Receipt receipt, @Nullable final UserData user) {
         final Purchase purchase = new Purchase(OpenIabHelper.NAME_AMAZON);
         if (receipt == null) {
             return purchase;
@@ -253,6 +253,9 @@ public class AmazonAppstoreBillingService implements AppstoreInAppBillingService
         final String storeSku = receipt.getSku();
         purchase.setSku(SkuManager.getInstance().getSku(OpenIabHelper.NAME_AMAZON, storeSku));
         purchase.setToken(receipt.getReceiptId());
+        if (user != null) {
+            purchase.setSignature(user.getUserId());
+        }
 
         switch (receipt.getProductType()) {
             case CONSUMABLE:
@@ -300,7 +303,7 @@ public class AmazonAppstoreBillingService implements AppstoreInAppBillingService
     @NotNull
     private SkuDetails getSkuDetails(@NotNull final Product product) {
         final String sku = product.getSku();
-        final String price = product.getPrice().toString();
+        final String price = product.getPrice();
         final String title = product.getTitle();
         final String description = product.getDescription();
         final ProductType productType = product.getProductType();
@@ -343,8 +346,8 @@ public class AmazonAppstoreBillingService implements AppstoreInAppBillingService
 
         final String requestSku = requestSkuMap.remove(requestId);
         final Receipt receipt = purchaseResponse.getReceipt();
-        final Purchase purchase = getPurchase(receipt);
-        final IabResult result;
+        Purchase purchase = null;
+        IabResult result;
         switch (status) {
             case SUCCESSFUL:
                 final UserData userData = purchaseResponse.getUserData();
@@ -356,6 +359,7 @@ public class AmazonAppstoreBillingService implements AppstoreInAppBillingService
                             "Current UserId doesn't match purchase UserId");
                     break;
                 }
+                purchase = getPurchase(receipt, userData);
 
                 purchase.setOriginalJson(generateOriginalJson(purchaseResponse));
                 purchase.setOrderId(requestId.toString());
@@ -390,6 +394,10 @@ public class AmazonAppstoreBillingService implements AppstoreInAppBillingService
             default:
                 result = null;
         }
+        if (purchase == null) {
+            purchase = getPurchase(receipt, null);
+        }
+
         final IabHelper.OnIabPurchaseFinishedListener listener = requestListeners.remove(requestId);
         if (listener != null) {
             listener.onIabPurchaseFinished(result, purchase);

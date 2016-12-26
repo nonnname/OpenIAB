@@ -169,4 +169,8 @@ public class Purchase implements Cloneable {
                 + ",\"token\":" + mToken
                 + "}";
     }
+
+    public void setSignature(String signature) {
+        this.mSignature = signature;
+    }
 }

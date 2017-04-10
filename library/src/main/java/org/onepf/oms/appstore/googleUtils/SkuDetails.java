@@ -23,13 +23,16 @@ import org.json.JSONObject;
  * Represents an in-app product's listing details.
  */
 public class SkuDetails {
-    String mItemType;
-    String mSku;
-    String mType;
-    String mPrice;
-    String mTitle;
-    String mDescription;
-    String mJson;
+    private String mItemType;
+    private String mSku;
+    private String mType;
+    private String mPrice;
+    private String mTitle;
+    private String mDescription;
+    private String mJson;
+
+    private String mPriceCurrencyCode = null;
+    private String mPriceValue = null;
 
     public SkuDetails(String jsonSkuDetails) throws JSONException {
         this(IabHelper.ITEM_TYPE_INAPP, jsonSkuDetails);
@@ -96,5 +99,21 @@ public class SkuDetails {
     @Override
     public String toString() {
         return String.format("SkuDetails: type = %s, SKU = %s, title = %s, price = %s, description = %s", mItemType, mSku, mTitle, mPrice, mDescription);
+    }
+
+    public String getPriceCurrencyCode() {
+        return mPriceCurrencyCode;
+    }
+
+    public void setPriceCurrencyCode(String mPriceCurrencyCode) {
+        this.mPriceCurrencyCode = mPriceCurrencyCode;
+    }
+
+    public String getPriceValue() {
+        return mPriceValue;
+    }
+
+    public void setPriceValue(String mPriceValue) {
+        this.mPriceValue = mPriceValue;
     }
 }

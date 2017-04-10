@@ -47,9 +47,14 @@ import org.onepf.oms.appstore.googleUtils.Purchase;
 import org.onepf.oms.appstore.googleUtils.SkuDetails;
 import org.onepf.oms.util.Logger;
 
+import java.text.DecimalFormat;
+import java.text.DecimalFormatSymbols;
+import java.text.ParseException;
+import java.util.Currency;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
@@ -67,15 +72,15 @@ class AmazonAppstoreBillingService implements AppstoreInAppBillingService, Purch
     // ========================================================================
     // PURCHASE RESPONSE JSON KEYS
     // ========================================================================
-    public static final String JSON_KEY_ORDER_ID = "orderId";
-    public static final String JSON_KEY_PRODUCT_ID = "productId";
-    public static final String JSON_KEY_RECEIPT_ITEM_TYPE = "itemType";
-    public static final String JSON_KEY_PURCHASE_STATUS = "purchaseStatus";
-    public static final String JSON_KEY_USER_ID = "userId";
-    public static final String JSON_KEY_RECEIPT_PURCHASE_TOKEN = "purchaseToken";
+    private static final String JSON_KEY_ORDER_ID = "orderId";
+    private static final String JSON_KEY_PRODUCT_ID = "productId";
+    private static final String JSON_KEY_RECEIPT_ITEM_TYPE = "itemType";
+    private static final String JSON_KEY_PURCHASE_STATUS = "purchaseStatus";
+    private static final String JSON_KEY_USER_ID = "userId";
+    private static final String JSON_KEY_RECEIPT_PURCHASE_TOKEN = "purchaseToken";
 
     private final Map<RequestId, IabHelper.OnIabPurchaseFinishedListener> requestListeners =
-            new HashMap<RequestId, IabHelper.OnIabPurchaseFinishedListener>();
+            new HashMap<>();
 
     private final Context context;
 
@@ -86,6 +91,10 @@ class AmazonAppstoreBillingService implements AppstoreInAppBillingService, Purch
      * during startSetup().
      */
     private String currentUserId;
+
+    private String currentMarketplace;
+    private Currency currentCurrency;
+    private DecimalFormatSymbols currentCurrencyFormat;
 
     /**
      * To process {@link #queryInventory(boolean, List, List)} request following steps are done:
@@ -111,7 +120,7 @@ class AmazonAppstoreBillingService implements AppstoreInAppBillingService, Purch
      * the one from {@link PurchasingListener#onPurchaseUpdatesResponse(PurchaseUpdatesResponse)}, we'll just
      * assume separate requests are equal and use simple queue for synchronization
      */
-    private final Queue<CountDownLatch> inventoryLatchQueue = new ConcurrentLinkedQueue<CountDownLatch>();
+    private final Queue<CountDownLatch> inventoryLatchQueue = new ConcurrentLinkedQueue<>();
 
     /**
      * If not null will be notified from
@@ -145,6 +154,9 @@ class AmazonAppstoreBillingService implements AppstoreInAppBillingService, Purch
                 final UserData userData = userDataResponse.getUserData();
                 final String userId = userData.getUserId();
                 this.currentUserId = userId;
+
+                selectMarketplace(userData.getMarketplace());
+
                 iabResult = new IabResult(IabHelper.BILLING_RESPONSE_RESULT_OK, "Setup successful.");
                 Logger.d("Set current userId: ", userId);
                 break;
@@ -179,7 +191,7 @@ class AmazonAppstoreBillingService implements AppstoreInAppBillingService, Purch
         }
 
         if (querySkuDetails) {
-            final Set<String> querySkus = new HashSet<String>(inventory.getAllOwnedSkus());
+            final Set<String> querySkus = new HashSet<>(inventory.getAllOwnedSkus());
             if (moreItemSkus != null) {
                 querySkus.addAll(moreItemSkus);
             }
@@ -187,7 +199,7 @@ class AmazonAppstoreBillingService implements AppstoreInAppBillingService, Purch
                 querySkus.addAll(moreSubsSkus);
             }
             if (!querySkus.isEmpty()) {
-                final HashSet<String> queryStoreSkus = new HashSet<String>(querySkus.size());
+                final HashSet<String> queryStoreSkus = new HashSet<>(querySkus.size());
                 for (String sku : querySkus) {
                     queryStoreSkus.add(SkuManager.getInstance().getStoreSku(OpenIabHelper.NAME_AMAZON, sku));
                 }
@@ -220,6 +232,10 @@ class AmazonAppstoreBillingService implements AppstoreInAppBillingService, Purch
                 }
                 final UserData userData = purchaseUpdatesResponse.getUserData();
                 final String userId = userData.getUserId();
+
+                // make sure marketplace is correct
+                selectMarketplace(userData.getMarketplace());
+
                 if (!userId.equals(currentUserId)) {
                     Logger.w("onPurchaseUpdatesResponse() Current UserId: ", currentUserId,
                             ", purchase UserId: ", userId);
@@ -314,7 +330,43 @@ class AmazonAppstoreBillingService implements AppstoreInAppBillingService, Purch
                 ? IabHelper.ITEM_TYPE_SUBS
                 : IabHelper.ITEM_TYPE_INAPP;
         final String openIabSku = SkuManager.getInstance().getSku(OpenIabHelper.NAME_AMAZON, sku);
-        return new SkuDetails(openIabSkuType, openIabSku, title, price, description);
+        final SkuDetails ret = new SkuDetails(openIabSkuType, openIabSku, title, price, description);
+
+        DecimalFormat numberFormat = new DecimalFormat("¤#.00", currentCurrencyFormat);
+
+        try {
+            ret.setPriceValue(numberFormat.parse(price).toString());
+        } catch (ParseException ignored) {
+            // fallback
+            // - find first and last digit.
+            // - remove everything else
+            // - try parsing again
+
+            int st = 0;
+            int et = price.length() - 1;
+            for (; st <= et; ++st) {
+                if (Character.isDigit(price.charAt(st)))
+                    break;
+            }
+            for (; et > st; --et) {
+                if (Character.isDigit(price.charAt(et)))
+                    break;
+            }
+
+            numberFormat = new DecimalFormat("¤#.00", currentCurrencyFormat);
+            String price_cut = currentCurrencyFormat.getCurrencySymbol() + price.substring(st, et + 1);
+            try {
+                ret.setPriceValue(numberFormat.parse(price_cut).toString());
+            } catch (ParseException e1) {
+                // Complete failure
+                Logger.e("Failed to parse price " + price, e1);
+                ret.setPriceValue(null);
+            }
+        }
+
+        ret.setPriceCurrencyCode(currentCurrency.getCurrencyCode());
+
+        return ret;
     }
 
     /**
@@ -322,7 +374,7 @@ class AmazonAppstoreBillingService implements AppstoreInAppBillingService, Purch
      * <br>
      * This map is intended to workaround this issue.
      */
-    private final Map<RequestId, String> requestSkuMap = new HashMap<RequestId, String>();
+    private final Map<RequestId, String> requestSkuMap = new HashMap<>();
 
     @Override
     public void launchPurchaseFlow(
@@ -352,6 +404,9 @@ class AmazonAppstoreBillingService implements AppstoreInAppBillingService, Purch
             case SUCCESSFUL:
                 final UserData userData = purchaseResponse.getUserData();
                 final String userId = userData.getUserId();
+
+                selectMarketplace(userData.getMarketplace());
+
                 if (!userId.equals(currentUserId)) {
                     Logger.w("onPurchaseResponse() Current UserId: ", currentUserId,
                             ", purchase UserId: ", userId);
@@ -466,5 +521,30 @@ class AmazonAppstoreBillingService implements AppstoreInAppBillingService, Purch
     @Override
     public boolean handleActivityResult(int requestCode, int resultCode, Intent data) {
         return false;
+    }
+
+    private void selectMarketplace(String marketplace) {
+        if (currentMarketplace != null && currentMarketplace.equals(marketplace))
+            return;
+
+        currentMarketplace = marketplace;
+        Locale locale = getMarketplaceLocale(currentMarketplace);
+        currentCurrencyFormat = DecimalFormatSymbols.getInstance(locale);
+        currentCurrency = Currency.getInstance(locale);
+    }
+
+    private static Locale getMarketplaceLocale(String marketPlace){
+        if (marketPlace == null || marketPlace.isEmpty()){
+            Logger.d( "(getCurrencyCode) Market place string is null or empty.");
+            return Locale.getDefault();
+        }
+
+        try{
+            return new Locale("", marketPlace);
+        }catch (IllegalArgumentException ex){
+            Logger.e("locale's country: " + marketPlace + " is not a supported ISO 3166 country. ");
+        }
+
+        return Locale.getDefault();
     }
 }

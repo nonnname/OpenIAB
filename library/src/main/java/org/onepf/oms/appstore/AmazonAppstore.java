@@ -57,6 +57,7 @@ public class AmazonAppstore extends DefaultAppstore {
      * classes. We examine such classes to understand whether app is delivered by Amazon
      */
     public static boolean hasAmazonClasses() {
+/*
         boolean result;
         synchronized (AmazonAppstore.class) {
             try {
@@ -68,7 +69,8 @@ public class AmazonAppstore extends DefaultAppstore {
                 result = false;
             }
         }
-        return result;
+        return result;*/
+        return true;
     }
 
     /**

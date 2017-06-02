@@ -199,18 +199,28 @@ class AmazonAppstoreBillingService implements AppstoreInAppBillingService, Purch
                 querySkus.addAll(moreSubsSkus);
             }
             if (!querySkus.isEmpty()) {
-                final HashSet<String> queryStoreSkus = new HashSet<>(querySkus.size());
-                for (String sku : querySkus) {
-                    queryStoreSkus.add(SkuManager.getInstance().getStoreSku(OpenIabHelper.NAME_AMAZON, sku));
-                }
-                final CountDownLatch productDataLatch = new CountDownLatch(1);
-                inventoryLatchQueue.offer(productDataLatch);
-                PurchasingService.getProductData(queryStoreSkus);
-                try {
-                    productDataLatch.await();
-                } catch (InterruptedException e) {
-                    Logger.w("queryInventory() SkuDetails fetching interrupted");
-                    return null;
+                final String[] querySkuArray = querySkus.toArray(new String[querySkus.size()]);
+
+                final int page = 90;
+                for (int base = 0; base < querySkuArray.length; base += page) {
+                    final HashSet<String> queryStoreSkus = new HashSet<>(querySkus.size());
+
+                    int end = base + page;
+                    if (end >= querySkuArray.length) end = querySkuArray.length - 1;
+
+                    for (int i = base; i < end; ++i) {
+                        String sku = querySkuArray[i];
+                        queryStoreSkus.add(SkuManager.getInstance().getStoreSku(OpenIabHelper.NAME_AMAZON, sku));
+                    }
+                    final CountDownLatch productDataLatch = new CountDownLatch(1);
+                    inventoryLatchQueue.offer(productDataLatch);
+                    PurchasingService.getProductData(queryStoreSkus);
+                    try {
+                        productDataLatch.await();
+                    } catch (InterruptedException e) {
+                        Logger.w("queryInventory() SkuDetails fetching interrupted");
+                        return null;
+                    }
                 }
             }
         }
